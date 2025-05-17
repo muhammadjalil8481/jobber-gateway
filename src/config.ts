@@ -1,3 +1,4 @@
+import { ConfigType, validateEnvVariables } from "@muhammadjalil8481/jobber-shared";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -32,24 +33,9 @@ class Config {
     this.ELASTIC_SEARCH_URL = process.env.ELASTIC_SEARCH_URL || "";
     this.ELASTIC_APM_SERVER_URL = process.env.ELASTIC_APM_SERVER_URL || "";
     
-    validateEnvVariables(this);
+    validateEnvVariables(this as unknown as ConfigType);
   }
 }
 
-function validateEnvVariables(config: Config) {
-  const missingVars: string[] = [];
-
-  for (const key in config) {
-    const value = config[key as keyof Config];
-    if (!value) {
-      missingVars.push(key);
-    }
-  }
-
-  if (missingVars.length > 0) {
-    console.error(`Missing environment variables: ${missingVars.join(", ")}`);
-    process.exit(1);
-  }
-}
 
 export const config = new Config();
