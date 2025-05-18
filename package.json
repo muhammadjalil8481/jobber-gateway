@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.17.1",
-    "@muhammadjalil8481/jobber-shared": "^0.7.19",
+    "@muhammadjalil8481/jobber-shared": "^0.7.23",
     "axios": "^1.9.0",
     "bcrypt": "^5.1.1",
     "compression": "^1.8.0",
