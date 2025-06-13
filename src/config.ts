@@ -5,7 +5,7 @@ const envList = [
   "NODE_ENV",
   "PORT",
   "GATEWAY_JWT_TOKEN",
-  "JWT_TOKEN",
+  "JWT_TOKEN_SECRET",
   "SECRET_KEY_ONE",
   "SECRET_KEY_TWO",
   "CLIENT_URL",
