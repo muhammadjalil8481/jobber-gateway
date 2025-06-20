@@ -1,4 +1,5 @@
 import { config } from "@gateway/config";
+import { log } from "@gateway/logger";
 import {
   IAuthPayload,
   NotAuthorizedError,
@@ -8,37 +9,22 @@ import { verify } from "jsonwebtoken";
 
 const verifyUser = (req: Request, _res: Response, next: NextFunction) => {
   try {
-    if (!req.session?.jwt) {
+    const accessToken = req.signedCookies?.accessToken;
+    if (!accessToken) {
       throw new NotAuthorizedError(
         "Unauthorized.",
         "Gateway Service verifyUser() method"
       );
     }
     const payload: IAuthPayload = verify(
-      req.session?.jwt,
-      config.JWT_TOKEN!
+      accessToken,
+      config.JWT_TOKEN_SECRET!
     ) as IAuthPayload;
     req.currentUser = payload;
   } catch (error) {
-    throw new NotAuthorizedError(
-      "Unauthorized.",
-      "Gateway Service verifyUser() method"
-    );
+    log.error("Gateway service verify user middleware error:", error);
   }
   next();
 };
 
-const checkAuthentication = (
-  req: Request,
-  _res: Response,
-  next: NextFunction
-) => {
-  if (!req.currentUser)
-    throw new NotAuthorizedError(
-      "Unauthorized.",
-      "Gateway Service checkAuthentication() method"
-    );
-  next();
-};
-
-export { verifyUser, checkAuthentication };
+export { verifyUser };

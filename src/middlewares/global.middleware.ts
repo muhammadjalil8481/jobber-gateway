@@ -1,22 +1,23 @@
-import express, { Application } from "express";
+import { Application } from "express";
 import compression from "compression";
 import cookieSession from "cookie-session";
 import hpp from "hpp";
 import helmet from "helmet";
 import cors from "cors";
 import { config } from "@gateway/config";
+import cookieParser from "cookie-parser";
 
 function initializeGlobalMiddleware(app: Application) {
   app.use(compression());
- 
+
   app.set("trust proxy", true); // Trust the first proxy (e.g., if behind a load balancer)
 
   app.use(
     cookieSession({
       name: "session", // name of the cookie
-      keys: [config.SECRET_KEY_ONE,config.SECRET_KEY_TWO], // array of keys for signing cookies (empty means no signing)
-      maxAge: 24 * 60 * 60 * 1000, // the maximum age of the session cookie (24 hours)
-      secure: config.NODE_ENV !== 'development', // cookie will be sent over both HTTP and HTTPS (not recommended for production)
+      keys: [config.SECRET_KEY_ONE, config.SECRET_KEY_TWO], // array of keys for signing cookies (empty means no signing)
+      maxAge: 1 * 60 * 60 * 1000, // the maximum age of the session cookie (1 hours)
+      secure: config.NODE_ENV !== "development", // cookie will be sent over both HTTP and HTTPS (not recommended for production)
       // sameSite: 'none' // optional property for controlling cross-site request behavior
     })
   );

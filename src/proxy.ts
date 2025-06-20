@@ -1,75 +1,131 @@
-import { createProxyMiddleware } from "http-proxy-middleware";
+import {
+  createProxyMiddleware,
+  responseInterceptor,
+} from "http-proxy-middleware";
 import { log } from "./logger";
 import { Request, Response } from "express";
 import { generateGatewayToken } from "./middlewares/gateway-token";
+import { checkServiceName } from "./helpers/checkServiceName";
+import { NotFoundError } from "@muhammadjalil8481/jobber-shared";
+import { setCookie } from "./helpers/setCookie";
 
 interface createProxyParams {
   target: string;
-  pathRewrite: string;
+  serviceName: string;
   serviceNameForLogging: string;
   handleSelfResponse?: boolean;
 }
 
+function responseLogger(
+  req: Request,
+  statusCode: number,
+  serviceNameForLogging: string
+) {
+  const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+  const message = `Proxy Service Response: ${serviceNameForLogging}, Url : ${url}, Method: ${req.method}, StatusCode : ${statusCode}`;
+  if (statusCode! >= 400) log.error(message);
+  else log.info(message);
+}
+
 export const createProxy = ({
   target,
-  pathRewrite,
+  serviceName,
   serviceNameForLogging,
   handleSelfResponse = false,
 }: createProxyParams) => {
   return createProxyMiddleware({
     target, // The target URL of the service to proxy requests to
     changeOrigin: true, // Change the origin of the host header to the target (service) URL
-    pathRewrite: {
-      [pathRewrite]: "", // remove the specified path from the request URL
+    pathRewrite: (_path: string, req: Request) => {
+      if (!checkServiceName(serviceName))
+        throw new NotFoundError("Url Not Found", "Proxy Request Function");
+
+      const url = new URL(
+        `${req.protocol}://${req.get("host")}${req.originalUrl}`
+      );
+      const pattern = new RegExp(`^/api/(v[0-9]+)/${serviceName}(\\/.*)?$`);
+      const match = url.pathname.match(pattern);
+      if (!match)
+        throw new NotFoundError("Url Not Found", "Proxy Request Function");
+
+      let rewrittenPath = `/api/${match[1]}${match[2] || ""}`;
+      const queryString = url.search; // includes ? and the params
+
+      return rewrittenPath + queryString;
     },
+
     selfHandleResponse: handleSelfResponse,
     on: {
       proxyReq: (proxyReq, req: Request) => {
         const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
         const gatewayToken = generateGatewayToken();
-        const bearerToken = req?.session?.jwt;
         proxyReq.setHeader("x-gateway-token", gatewayToken);
-        if (bearerToken) {
-          proxyReq.setHeader("Authorization", `Bearer ${bearerToken}`);
+        const accessToken = req.signedCookies?.accessToken;
+        if (accessToken && req.currentUser) {
+          proxyReq.setHeader("Authorization", `Bearer ${accessToken}`);
+          proxyReq.setHeader("x-user", JSON.stringify(req.currentUser));
+        }
+        const refreshToken = req.signedCookies?.refreshToken;
+        if (refreshToken) {
+          proxyReq.setHeader("x-refresh-token", refreshToken);
         }
         log.info(
           `Proxy Service Request: ${serviceNameForLogging}, Url : ${url}, Method : ${req.method}`
         );
       },
-      proxyRes: (proxyRes, req, res: Response) => {
-        const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-        const statusCode = proxyRes.statusCode;
-        const message = `Proxy Service Response: ${serviceNameForLogging}, Url : ${url}, Method: ${req.method}, StatusCode : ${statusCode}`;
-        if (statusCode! >= 400) log.error(message);
-        else log.info(message);
-
-        if (handleSelfResponse) {
-          let body = "";
-          proxyRes.on("data", (chunk: Buffer) => {
-            body += chunk.toString("utf8");
-          });
-          proxyRes.on("end", () => {
-            try {
-              const data = JSON.parse(body);
-              if (data.token) {
-                // Set the cookie on the response to client
-                req.session!.jwt = data.token;
-                delete data.token;
-              }
-              res.status(statusCode!).json(data);
-            } catch (error) {
-              log.error(
-                `Failed to parse proxy response for ${serviceNameForLogging}`,
-                error
+      proxyRes: handleSelfResponse
+        ? responseInterceptor(
+            async (responseBuffer, proxyRes, req, res: Response) => {
+              responseLogger(
+                req,
+                proxyRes.statusCode || 500,
+                serviceNameForLogging
               );
-              res.status(500).json({
-                status: "error",
-                message: "Internal Server Error",
-              });
+              try {
+                const body = responseBuffer.toString("utf-8");
+                const data = JSON.parse(body);
+
+                if (data.accessToken) {
+                  setCookie({
+                    res,
+                    name: "accessToken",
+                    data: data.accessToken,
+                    maxAge: 15 * 60 * 1000,
+                  });
+                  delete data.accessToken;
+                }
+
+                if (data.refreshToken) {
+                  setCookie({
+                    res,
+                    name: "refreshToken",
+                    data: data.refreshToken,
+                    maxAge: 7 * 24 * 60 * 60 * 1000,
+                  });
+                  delete data.refreshToken;
+                }
+
+                return JSON.stringify(data); // return modified body
+              } catch (error) {
+                log.error(
+                  `Failed to parse proxy response for ${serviceNameForLogging}`,
+                  error
+                );
+                res.status(500).json({
+                  status: "error",
+                  message: "Internal Server Error",
+                });
+                return ""; // must return something
+              }
             }
-          });
-        }
-      },
+          )
+        : (proxyRes, req, _res: Response) => {
+            responseLogger(
+              req,
+              proxyRes.statusCode || 500,
+              serviceNameForLogging
+            );
+          },
       error: (err, _req, res) => {
         log.error(`Proxy Error: ${serviceNameForLogging}, ${err.message}`);
 
@@ -87,14 +143,14 @@ export const createProxy = ({
 
 export const notificationProxy = createProxy({
   target: "http://localhost:4001",
-  pathRewrite: "^/notifications",
+  serviceName: "notifications",
   serviceNameForLogging: "Notifications",
   handleSelfResponse: false,
 });
 
 export const authProxy = createProxy({
   target: "http://localhost:4002",
-  pathRewrite: "^/auth",
+  serviceName: "auth",
   serviceNameForLogging: "Authentication",
   handleSelfResponse: true,
 });
